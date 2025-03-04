@@ -1,35 +1,47 @@
 import express from 'express';
+import path from 'path';
 
 const app = express();
 const port = 3000;
 
-// Endpoint for univariate (one number at a time)
-app.get('/univariate', (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
+// Serve static files from the current directory
+app.use(express.static(__dirname));
 
-  const intervalId = setInterval(() => {
-    const number = 20 * Math.random(); // Generate a single random number
-    res.write(`data: ${number}\n\n`);
-  }, 1000);
-
-  req.on('close', () => {
-    clearInterval(intervalId);
-    res.end();
-  });
+// Root endpoint - serve the HTML file
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// Endpoint for multivariate (multiple numbers at a time)
-app.get('/multivariate', (req, res) => {
+// Stream endpoint
+app.get('/stream', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
 
+  const {
+    type = 'univariate',
+    points = '5',
+    interval = '1000',
+    min = '0',
+    max = '20'
+  } = req.query;
+
+  const numPoints = parseInt(points as string);
+  const updateInterval = parseInt(interval as string);
+  const minValue = parseFloat(min as string);
+  const maxValue = parseFloat(max as string);
+
   const intervalId = setInterval(() => {
-    const numbers = Array.from({ length: 5 }, () => 20 * Math.random()); // Generate 5 random numbers
-    res.write(`data: ${JSON.stringify(numbers)}\n\n`);
-  }, 1000);
+    if (type === 'univariate') {
+      const number = minValue + (maxValue - minValue) * Math.random();
+      res.write(`data: ${number}\n\n`);
+    } else {
+      const numbers = Array.from({ length: numPoints }, () => 
+        minValue + (maxValue - minValue) * Math.random()
+      );
+      res.write(`data: ${JSON.stringify(numbers)}\n\n`);
+    }
+  }, updateInterval);
 
   req.on('close', () => {
     clearInterval(intervalId);

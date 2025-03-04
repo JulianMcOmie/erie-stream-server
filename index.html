@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Erie Stream Server UI</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+        }
+        .controls {
+            flex: 1;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .data-display {
+            flex: 1;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .control-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        select, input[type="number"], input[type="range"] {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .status.connected {
+            background-color: #dff0d8;
+            color: #3c763d;
+        }
+        .status.disconnected {
+            background-color: #f2dede;
+            color: #a94442;
+        }
+        .data-window {
+            background-color: #1e1e1e;
+            color: #fff;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: monospace;
+            height: 400px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+        .data-entry {
+            margin-bottom: 5px;
+            padding: 5px;
+            border-bottom: 1px solid #333;
+        }
+        .timestamp {
+            color: #888;
+            font-size: 0.8em;
+        }
+        .value {
+            color: #4CAF50;
+        }
+        .array-value {
+            color: #2196F3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="controls">
+            <h1>Erie Stream Server UI</h1>
+            
+            <div class="control-group">
+                <label for="dataType">Data Type:</label>
+                <select id="dataType">
+                    <option value="univariate">Univariate (Single Number)</option>
+                    <option value="multivariate">Multivariate (Array of Numbers)</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <label for="numPoints">Number of Data Points:</label>
+                <input type="number" id="numPoints" min="1" max="10" value="5">
+            </div>
+
+            <div class="control-group">
+                <label for="updateInterval">Update Interval (ms):</label>
+                <input type="number" id="updateInterval" min="100" max="5000" value="1000" step="100">
+            </div>
+
+            <div class="control-group">
+                <label for="valueRange">Value Range:</label>
+                <div>
+                    <input type="number" id="minValue" value="0" min="-100" max="100">
+                    <span>to</span>
+                    <input type="number" id="maxValue" value="20" min="-100" max="100">
+                </div>
+            </div>
+
+            <button id="toggleStream">Start Streaming</button>
+            <div id="status" class="status disconnected">Disconnected</div>
+        </div>
+
+        <div class="data-display">
+            <h2>Data Stream</h2>
+            <div id="dataWindow" class="data-window"></div>
+        </div>
+    </div>
+
+    <script>
+        let eventSource = null;
+        const toggleButton = document.getElementById('toggleStream');
+        const statusDiv = document.getElementById('status');
+        const dataWindow = document.getElementById('dataWindow');
+
+        function updateStatus(connected) {
+            statusDiv.textContent = connected ? 'Connected' : 'Disconnected';
+            statusDiv.className = `status ${connected ? 'connected' : 'disconnected'}`;
+        }
+
+        function formatData(data) {
+            try {
+                const parsed = JSON.parse(data);
+                if (Array.isArray(parsed)) {
+                    return parsed.map(v => v.toFixed(2)).join(', ');
+                }
+                return parsed.toFixed(2);
+            } catch {
+                return data;
+            }
+        }
+
+        function addDataEntry(data) {
+            const entry = document.createElement('div');
+            entry.className = 'data-entry';
+            
+            const timestamp = document.createElement('span');
+            timestamp.className = 'timestamp';
+            timestamp.textContent = new Date().toLocaleTimeString() + ' ';
+            
+            const value = document.createElement('span');
+            value.className = Array.isArray(JSON.parse(data)) ? 'array-value' : 'value';
+            value.textContent = formatData(data);
+            
+            entry.appendChild(timestamp);
+            entry.appendChild(value);
+            dataWindow.insertBefore(entry, dataWindow.firstChild);
+            
+            // Keep only the last 100 entries
+            while (dataWindow.children.length > 100) {
+                dataWindow.removeChild(dataWindow.lastChild);
+            }
+        }
+
+        function startStreaming() {
+            const dataType = document.getElementById('dataType').value;
+            const numPoints = document.getElementById('numPoints').value;
+            const updateInterval = document.getElementById('updateInterval').value;
+            const minValue = document.getElementById('minValue').value;
+            const maxValue = document.getElementById('maxValue').value;
+
+            const params = new URLSearchParams({
+                type: dataType,
+                points: numPoints,
+                interval: updateInterval,
+                min: minValue,
+                max: maxValue
+            });
+
+            eventSource = new EventSource(`/stream?${params.toString()}`);
+            
+            eventSource.onopen = () => {
+                updateStatus(true);
+                toggleButton.textContent = 'Stop Streaming';
+            };
+
+            eventSource.onmessage = (event) => {
+                addDataEntry(event.data);
+            };
+
+            eventSource.onerror = () => {
+                updateStatus(false);
+                toggleButton.textContent = 'Start Streaming';
+            };
+        }
+
+        function stopStreaming() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+                updateStatus(false);
+                toggleButton.textContent = 'Start Streaming';
+            }
+        }
+
+        toggleButton.addEventListener('click', () => {
+            if (eventSource) {
+                stopStreaming();
+            } else {
+                startStreaming();
+            }
+        });
+    </script>
+</body>
+</html> 
